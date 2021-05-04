@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     SimpleLogger::new().init().unwrap();
 
-    let addr = "[::1]:50051".parse().unwrap();
+    let addr = "0.0.0.0:4000".parse().unwrap();
     let greeter = MyGreeter::default();
 
 

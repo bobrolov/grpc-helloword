@@ -19,8 +19,8 @@ RUN rustup component add rustfmt
 RUN cargo build --release --bin grpc-server --bin grpc-client
 
 FROM rust as runtime
-RUN rustup component add rustfmt
 WORKDIR app
 COPY --from=builder /app/target/release/grpc-server /usr/local/bin
+COPY --from=builder /app/target/release/grpc-client /usr/local/bin
 #ENTRYPOINT ["./usr/local/bin/grpc-server"]
-CMD ["grpc-server"]
+CMD ["grpc-client"]

@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     SimpleLogger::new().init().unwrap();
 
-    let mut client = GreeterClient::connect("http://[::1]:50051").await?;
+    let mut client = GreeterClient::connect("http://172.12.0.2:4000").await?;
 
     let request = tonic::Request::new(HelloRequest {
         name: "Tonic".into(),
