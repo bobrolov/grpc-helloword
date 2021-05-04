@@ -7,11 +7,16 @@ services:
     command: "grpc-server"
     environment:
       APP_ADDRESS: "0.0.0.0:4000"
+      POSTGRES_ADDRESS: "postgres_db:5432"
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_TABLE: "grpc_messages"
     ports:
       - "4000:4000"
     networks:
       - app_network
     restart: unless-stopped
+    depends_on:
+      - postres
 
   grpc-client:
     container_name: grpc-client
@@ -25,6 +30,20 @@ services:
       - grpc-server
     links:
       - grpc-server
+
+  postres:
+    container_name: postgres_db
+    image: postgres
+    environment:
+      POSTGRES_PASSWORD: "password"
+      PGDATA: "/data/postgres"
+    volumes:
+      - ./postgres:/data/postgres/
+    ports:
+      - "5432:5432"
+    networks:
+      - app_network
+    restart: unless-stopped
 
 networks:
   app_network:
