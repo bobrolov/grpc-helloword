@@ -35,7 +35,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     SimpleLogger::new().init().unwrap();
 
-    let addr = "0.0.0.0:4000".parse().unwrap();
+    let address = std::env::var("SERVER_ADDRESS");
+
+    let address = match address {
+        Ok(addr) => addr,
+        Err(error) => panic!("Problem reading the env variable: {:?}", error),
+    };
+
+    let addr = address.parse().unwrap();
     let greeter = MyGreeter::default();
 
 
