@@ -1,10 +1,26 @@
-FROM rust:latest
+FROM rust as planner
+WORKDIR app
+RUN cargo install cargo-chef
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-RUN rustup update
+FROM rust as cacher
+WORKDIR app
+RUN cargo install cargo-chef
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+
+FROM rust as builder
+WORKDIR app
+COPY . .
+COPY --from=cacher /app/target target
+COPY --from=cacher /usr/local/cargo /usr/local/cargo
 RUN rustup component add rustfmt
+RUN cargo build --release --bin grpc-server --bin grpc-client
 
-WORKDIR /usr/src/app
-
-COPY Cargo.toml Cargo.toml
-RUN mkdir src/
-
+FROM rust as runtime
+RUN rustup component add rustfmt
+WORKDIR app
+COPY --from=builder /app/target/release/grpc-server /usr/local/bin
+#ENTRYPOINT ["./usr/local/bin/grpc-server"]
+CMD ["grpc-server"]
