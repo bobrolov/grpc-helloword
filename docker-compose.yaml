@@ -23,6 +23,8 @@ services:
       - app_network
     depends_on:
       - grpc-server
+    links:
+      - grpc-server
 
 networks:
   app_network:

@@ -13,7 +13,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     SimpleLogger::new().init().unwrap();
 
-    let mut client = GreeterClient::connect("http://172.12.0.2:4000").await?;
+    let address = std::env::var("SERVER_ADDRESS");
+
+    let address = match address {
+        Ok(addr) => addr,
+        Err(error) => panic!("Problem reading the env variable: {:?}", error),
+    };
+
+    let mut client = GreeterClient::connect(format!("http://{}", address)).await?;
 
     let request = tonic::Request::new(HelloRequest {
         name: "Tonic".into(),
