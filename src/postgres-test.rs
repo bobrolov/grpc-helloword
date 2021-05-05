@@ -44,14 +44,15 @@ fn main() {
     let par1 = "test_prog";
     let par2 = "test_prog2";
     //let query = format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table);
-
-    let insert_row =  client.execute("INSERT INTO grpc_messages (message, client) VALUES ($1, $2)",
+    let db_statement = client.prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str()).unwrap();
+    let insert_row =  client.execute(&db_statement,
                    &[&par1, &par2]);
     let insert_row = match insert_row {
         Ok(insert_row) => insert_row,
         Err(error) => panic!("Problem with insert command: {:?}", error),
     };
-
     info!("Results of insert operation: {}", insert_row);
+
+    client.close();
 
 }
