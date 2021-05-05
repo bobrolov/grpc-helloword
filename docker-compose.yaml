@@ -4,17 +4,14 @@ services:
   grpc-server:
     container_name: "grpc-server"
     build: .
-#    command: "grpc-server"
-    environment:
-      APP_ADDRESS: "0.0.0.0:4000"
-      POSTGRES_ADDRESS: "postgres_db:5432"
-      POSTGRES_PASSWORD: "password"
-      POSTGRES_TABLE: "grpc_messages"
+    command: "grpc-server"
+    env_file:
+      - server.env
     ports:
       - "4000:4000"
     networks:
       - app_network
-#    restart: unless-stopped
+    restart: unless-stopped
     depends_on:
       - postgres
     links:
@@ -23,7 +20,7 @@ services:
   grpc-client:
     container_name: "grpc-client"
     build: .
-#    command: "grpc-client"
+    command: "grpc-client"
     environment:
       SERVER_ADDRESS: "grpc-server:4000"
     networks:
@@ -46,15 +43,14 @@ services:
       - "5432:5432"
     networks:
       - app_network
-#    restart: unless-stopped
+    restart: unless-stopped
 
   postgres-test:
     container_name: "postgres-test"
     build: .
-    command: "postgres-test"
+#    command: "postgres-test"
     environment:
       POSTGRES_ADDRESS: "postgres-db"
-      POSTGRES_PORT: "5432"
       POSTGRES_USER: "postgres"
       POSTGRES_PASSWORD: "password"
       POSTGRES_TABLE: "grpc_messages"

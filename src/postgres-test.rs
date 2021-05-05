@@ -1,58 +1,44 @@
-use postgres::{Client, NoTls};
+//use postgres::{Client, NoTls};
+use tokio_postgres::{NoTls, Error};
 use simple_logger::SimpleLogger;
-use log::info;
+use log::{info};
 
-fn main() {
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
 
     SimpleLogger::new().init().unwrap();
 
-    let db_address = std::env::var("POSTGRES_ADDRESS");
-    let db_address = match db_address {
+    let config_connection = match std::env::var("POSTGRES_CONFIG") {
         Ok(addr) => addr,
-        Err(error) => panic!("Problem reading the db_address from env: {:?}", error),
+        Err(error) => panic!("Problem reading the config from env: {:?}", error),
     };
-    let db_port = std::env::var("POSTGRES_PORT");
-    let db_port = match db_port {
-        Ok(port) => port,
-        Err(error) => panic!("Problem reading the db_port from env: {:?}", error),
-    };
-    let db_user = std::env::var("POSTGRES_USER");
-    let db_user = match db_user {
-        Ok(user) => user,
-        Err(error) => panic!("Problem reading the db user from env: {:?}", error),
-    };
-    let db_password = std::env::var("POSTGRES_PASSWORD");
-    let db_password = match db_password {
-        Ok(pass) => pass,
-        Err(error) => panic!("Problem reading the db_password from env: {:?}", error),
-    };
-    let db_table = std::env::var("POSTGRES_TABLE");
-    let db_table = match db_table {
+    info!("Read config from env: {}",config_connection);
+
+    let db_table = match std::env::var("POSTGRES_TABLE") {
         Ok(table) => table,
         Err(error) => panic!("Problem reading the db_table from env: {:?}", error),
     };
 
-    let config_connection = format!("host={} user={} password={}", db_address, db_user,db_password);
-    info!("{}",config_connection);
+    let (client, connection) = tokio_postgres::connect(config_connection.as_str(), NoTls).await?;
 
-    let client = Client::connect(config_connection.as_str(), NoTls);
-    let mut client = match client {
-        Ok(client) => client,
-        Err(error) => panic!("Problem with connection to postgres: {:?}", error),
-    };
+    tokio::spawn(async move {
+       if let Err(err) = connection.await {
+           panic!("Postgres connection error: {}", err);
+       }
+    });
 
-    let par1 = "test_prog";
-    let par2 = "test_prog2";
-    //let query = format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table);
-    let db_statement = client.prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str()).unwrap();
+    let par1 = "test_tokio_attempt";
+    let par2 = "test_tokio_attempt2";
+
+    let db_statement = client.prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str()).await.unwrap();
     let insert_row =  client.execute(&db_statement,
-                   &[&par1, &par2]);
+                   &[&par1, &par2]).await;
     let insert_row = match insert_row {
         Ok(insert_row) => insert_row,
         Err(error) => panic!("Problem with insert command: {:?}", error),
     };
     info!("Results of insert operation: {}", insert_row);
 
-    client.close();
-
+    Ok(())
 }
