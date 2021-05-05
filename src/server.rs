@@ -63,9 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn write_to_postgres(client:) -> Result<(), Error> {
+async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), Error> {
 
-    SimpleLogger::new().init().unwrap();
 
     let config_connection = match std::env::var("POSTGRES_CONFIG") {
         Ok(addr) => addr,
@@ -86,63 +85,14 @@ async fn write_to_postgres(client:) -> Result<(), Error> {
         }
     });
 
-    let par1 = "test_tokio_attempt";
-    let par2 = "test_tokio_attempt2";
-
     let db_statement = client.prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str()).await.unwrap();
     let insert_row =  client.execute(&db_statement,
-                                     &[&par1, &par2]).await;
+                                     &[&grpc_message, &grpc_client]).await;
     let insert_row = match insert_row {
         Ok(insert_row) => insert_row,
         Err(error) => panic!("Problem with insert command: {:?}", error),
     };
     info!("Results of insert operation: {}", insert_row);
-
-    Ok(())
-}
-
-
-async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), Box<dyn std::error::Error>> {
-
-    let db_address = match std::env::var("POSTGRES_ADDRESS") {
-        Ok(addr) => addr,
-        Err(error) => panic!("Problem reading the db_address from env: {:?}", error),
-    };
-    let db_user = match std::env::var("POSTGRES_USER") {
-        Ok(user) => user,
-        Err(error) => panic!("Problem reading the db user from env: {:?}", error),
-    };
-    let db_password = match std::env::var("POSTGRES_PASSWORD") {
-        Ok(pass) => pass,
-        Err(error) => panic!("Problem reading the db_password from env: {:?}", error),
-    };
-    let db_table = match std::env::var("POSTGRES_TABLE") {
-        Ok(table) => table,
-        Err(error) => panic!("Problem reading the db_table from env: {:?}", error),
-    };
-
-    let config_connection = format!("host={} user={} password={}", db_address, db_user,db_password);
-    info!("{}",config_connection);
-
-    let mut client = tokio::task::spawn( async move {
-        match Client::connect(config_connection.as_str(), NoTls) {
-            Ok(client) => client,
-            Err(error) => panic!("Problem with connection to postgres: {:?}", error),
-        }
-    }).await.unwrap();
-
-
-    let db_statement = client.prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str()).unwrap();
-    let insert_row =  client.execute(&db_statement,
-                                     &[&grpc_message, &grpc_client]);
-    let insert_row = match insert_row {
-        Ok(insert_row) => insert_row,
-        Err(error) => panic!("Problem with insert command: {:?}", error),
-    };
-
-    info!("Inserted {} rows in {} table", insert_row, db_table);
-
-    client.close();
 
     Ok(())
 }
