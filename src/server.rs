@@ -1,11 +1,9 @@
-
-
 use tonic::{transport::Server, Request, Response, Status};
 
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
 use simple_logger::SimpleLogger;
-use tokio_postgres::{NoTls, Error};
+use tokio_postgres::{Error, NoTls};
 
 use log::info;
 
@@ -24,13 +22,15 @@ impl Greeter for MyGreeter {
     ) -> Result<Response<HelloReply>, Status> {
         info!("Got a request from {:?}", request.remote_addr());
 
-        let reply = hello_world::HelloReply {
+        let mut reply = hello_world::HelloReply {
             message: format!("Hello {}!", request.into_inner().name),
         };
 
-        let grpc_message = "54321";
-        let grpc_client = "12345";
-        let res = match write_to_postgres(grpc_message,grpc_client).await {
+        //let grpc_client = format!("{:?}", buf_req.remote_addr().unwrap()).as_str();
+        let grpc_client = "123";
+        let grpc_message = "321";
+
+        let res = match write_to_postgres(grpc_message, grpc_client).await {
             Ok(res) => res,
             Err(error) => panic!("Error: {}", error),
         };
@@ -41,7 +41,6 @@ impl Greeter for MyGreeter {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     SimpleLogger::new().init().unwrap();
 
     let address = match std::env::var("ADDRESS") {
@@ -51,7 +50,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let addr = address.parse().unwrap();
     let greeter = MyGreeter::default();
-
 
     info!("GreeterServer listening on {}", addr);
 
@@ -64,13 +62,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), Error> {
-
-
     let config_connection = match std::env::var("POSTGRES_CONFIG") {
         Ok(addr) => addr,
         Err(error) => panic!("Problem reading the config from env: {:?}", error),
     };
-    info!("Read config from env: {}",config_connection);
+    info!("Read config from env: {}", config_connection);
 
     let db_table = match std::env::var("POSTGRES_TABLE") {
         Ok(table) => table,
@@ -85,9 +81,13 @@ async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), 
         }
     });
 
-    let db_statement = client.prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str()).await.unwrap();
-    let insert_row =  client.execute(&db_statement,
-                                     &[&grpc_message, &grpc_client]).await;
+    let db_statement = client
+        .prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str())
+        .await
+        .unwrap();
+    let insert_row = client
+        .execute(&db_statement, &[&grpc_message, &grpc_client])
+        .await;
     let insert_row = match insert_row {
         Ok(insert_row) => insert_row,
         Err(error) => panic!("Problem with insert command: {:?}", error),
