@@ -16,11 +16,13 @@ COPY . .
 COPY --from=cacher /app/target target
 COPY --from=cacher /usr/local/cargo /usr/local/cargo
 RUN rustup component add rustfmt
-RUN cargo build --release --bin grpc-server --bin grpc-client
+RUN cargo build --release --bin grpc-server --bin grpc-client --bin postgres-test
 
 FROM rust as runtime
 WORKDIR app
-COPY --from=builder /app/target/release/grpc-server /usr/local/bin
-COPY --from=builder /app/target/release/grpc-client /usr/local/bin
+#COPY --from=builder /app/target/release/grpc-server /usr/local/bin
+#COPY --from=builder /app/target/release/grpc-client /usr/local/bin
+#COPY --from=builder /app/target/release/postgres-test /usr/local/bin
+COPY --from=builder /app/target/release/ /usr/local/bin
 #ENTRYPOINT ["./usr/local/bin/grpc-server"]
-CMD ["grpc-client"]
+

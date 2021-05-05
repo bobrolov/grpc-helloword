@@ -7,6 +7,7 @@ use hello_world::{HelloReply, HelloRequest};
 use simple_logger::SimpleLogger;
 
 use log::info;
+//use tokio_postgres::Connection;
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
