@@ -7,6 +7,8 @@ use tokio_postgres::{Error, NoTls};
 
 use log::info;
 
+use chrono::{DateTime, Utc};
+
 pub mod hello_world {
     tonic::include_proto!("helloworld");
 }
@@ -22,13 +24,11 @@ impl Greeter for MyGreeter {
     ) -> Result<Response<HelloReply>, Status> {
         info!("Got a request from {:?}", request.remote_addr());
 
-        let mut reply = hello_world::HelloReply {
-            message: format!("Hello {}!", request.into_inner().name),
-        };
+        let grpc_client = &request.remote_addr().unwrap().to_string();
+        let msg = format!("Not hello {}!", request.into_inner().name);
+        let grpc_message = &msg.clone();
 
-        //let grpc_client = format!("{:?}", buf_req.remote_addr().unwrap()).as_str();
-        let grpc_client = "123";
-        let grpc_message = "321";
+        let mut reply = hello_world::HelloReply { message: msg };
 
         let res = match write_to_postgres(grpc_message, grpc_client).await {
             Ok(res) => res,
@@ -41,7 +41,7 @@ impl Greeter for MyGreeter {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::from_env().init().unwrap();
 
     let address = match std::env::var("ADDRESS") {
         Ok(addr) => addr,
@@ -73,6 +73,10 @@ async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), 
         Err(error) => panic!("Problem reading the db_table from env: {:?}", error),
     };
 
+    let datetime = Utc::now();
+    let datetime = datetime.to_rfc3339().replace("T", " ");
+    let datetime = &datetime[..26];
+
     let (client, connection) = tokio_postgres::connect(config_connection.as_str(), NoTls).await?;
 
     tokio::spawn(async move {
@@ -82,11 +86,17 @@ async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), 
     });
 
     let db_statement = client
-        .prepare(format!("INSERT INTO {} (message, client) VALUES ($1, $2)", db_table).as_str())
+        .prepare(
+            format!(
+                "INSERT INTO {} (message, client_address, received_at_server) VALUES ($1, $2, $3)",
+                db_table
+            )
+            .as_str(),
+        )
         .await
         .unwrap();
     let insert_row = client
-        .execute(&db_statement, &[&grpc_message, &grpc_client])
+        .execute(&db_statement, &[&grpc_message, &grpc_client, &datetime])
         .await;
     let insert_row = match insert_row {
         Ok(insert_row) => insert_row,
