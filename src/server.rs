@@ -7,9 +7,6 @@ use tokio_postgres::{Error, NoTls};
 
 use log::{info, warn};
 
-#[macro_use]
-extern crate derive_new;
-
 use chrono::Utc;
 use postgres::tls::NoTlsStream;
 use postgres::Socket;
@@ -18,7 +15,7 @@ pub mod hello_world {
     tonic::include_proto!("helloworld");
 }
 
-#[derive(new)]
+//#[derive(new)]
 pub struct MyGreeter {
     db_client: tokio_postgres::Client,
 }
@@ -41,16 +38,29 @@ impl Greeter for MyGreeter {
             .write_to_postgres(grpc_message, grpc_client)
             .await
             .unwrap();
-        /*
-        let res = match write_to_postgres(grpc_message, grpc_client).await {
-            Ok(res) => res,
-            Err(error) => panic!("Error: {}", error),
-        };
-        */
         Ok(Response::new(reply))
     }
 }
 impl MyGreeter {
+    async fn new() -> MyGreeter {
+        let config_connection = match std::env::var("POSTGRES_CONFIG") {
+            Ok(addr) => addr,
+            Err(error) => panic!("Problem reading the config from env: {:?}", error),
+        };
+        info!("Read config from env: {}", config_connection);
+
+        let (client, connection) = tokio_postgres::connect(config_connection.as_str(), NoTls)
+            .await
+            .unwrap();
+
+        tokio::spawn(async move {
+            if let Err(err) = connection.await {
+                panic!("Postgres connection error: {}", err);
+            }
+        });
+
+        MyGreeter { db_client: client }
+    }
     async fn write_to_postgres(&self, grpc_message: &str, grpc_client: &str) -> Result<(), Error> {
         let db_table = match std::env::var("POSTGRES_TABLE") {
             Ok(table) => table,
@@ -102,29 +112,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => panic!("Problem with parsing this address: {:?}", error),
     };
 
-    let greeter = MyGreeter::new(connect_to_postgres().await.unwrap());
+    let greeter = MyGreeter::new().await;
     Server::builder()
         .add_service(GreeterServer::new(greeter))
         .serve(address)
         .await?;
 
     Ok(())
-}
-
-async fn connect_to_postgres() -> Result<tokio_postgres::Client, Error> {
-    let config_connection = match std::env::var("POSTGRES_CONFIG") {
-        Ok(addr) => addr,
-        Err(error) => panic!("Problem reading the config from env: {:?}", error),
-    };
-    info!("Read config from env: {}", config_connection);
-
-    let (client, connection) = tokio_postgres::connect(config_connection.as_str(), NoTls).await?;
-
-    tokio::spawn(async move {
-        if let Err(err) = connection.await {
-            panic!("Postgres connection error: {}", err);
-        }
-    });
-
-    Ok(client)
 }
