@@ -5,9 +5,11 @@ use hello_world::{HelloReply, HelloRequest};
 use simple_logger::SimpleLogger;
 use tokio_postgres::{Error, NoTls};
 
-use log::info;
+use log::{info, warn};
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
+use postgres::tls::NoTlsStream;
+use postgres::Socket;
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
@@ -43,25 +45,32 @@ impl Greeter for MyGreeter {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::from_env().init().unwrap();
 
-    let address = match std::env::var("ADDRESS") {
-        Ok(addr) => addr,
-        Err(error) => panic!("Problem reading the env variable: {:?}", error),
+    let address = match std::env::var("ADDRESS")
+        .unwrap_or_else(|err| {
+            warn!("Can't read env, set to default address");
+            "0.0.0.0:4000".to_string()
+        })
+        .parse()
+    {
+        Ok(address) => {
+            info!("Server will be listening on {:?}", address);
+            address
+        }
+        Err(error) => panic!("Problem with parsing this address: {:?}", error),
     };
 
-    let addr = address.parse().unwrap();
     let greeter = MyGreeter::default();
-
-    info!("GreeterServer listening on {}", addr);
 
     Server::builder()
         .add_service(GreeterServer::new(greeter))
-        .serve(addr)
+        .serve(address)
         .await?;
 
     Ok(())
 }
 
 async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), Error> {
+
     let config_connection = match std::env::var("POSTGRES_CONFIG") {
         Ok(addr) => addr,
         Err(error) => panic!("Problem reading the config from env: {:?}", error),
@@ -73,8 +82,7 @@ async fn write_to_postgres(grpc_message: &str, grpc_client: &str) -> Result<(), 
         Err(error) => panic!("Problem reading the db_table from env: {:?}", error),
     };
 
-    let datetime = Utc::now();
-    let datetime = datetime.to_rfc3339().replace("T", " ");
+    let datetime = Utc::now().to_rfc3339().replace("T"," ");
     let datetime = &datetime[..26];
 
     let (client, connection) = tokio_postgres::connect(config_connection.as_str(), NoTls).await?;
