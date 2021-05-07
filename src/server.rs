@@ -1,19 +1,16 @@
-use tonic::{transport::Server, Request, Response, Status};
-
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
+use log::{error, info, warn, LevelFilter};
 use simple_logger::SimpleLogger;
-use tokio_postgres::{Error, NoTls};
-
-use log::{info, warn};
-
-use chrono::{DateTime, Utc};
+use tokio_postgres::NoTls;
+use tonic::{transport::Server, Request, Response, Status};
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
 }
 
-//#[derive(new)]
 pub struct MyGreeter {
     db_client: tokio_postgres::Client,
     db_table: String,
@@ -21,9 +18,12 @@ pub struct MyGreeter {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    SimpleLogger::from_env().init().unwrap();
+    SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .init()
+        .unwrap();
 
-    let address = match std::env::var("ADDRESS")
+    let address = match std::env::var("SERVER_ADDRESS")
         .unwrap_or_else(|err| {
             warn!("Can't read env, set to default address");
             "0.0.0.0:4000".to_string()
@@ -37,8 +37,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => panic!("Problem with parsing this address: {:?}", error),
     };
 
+    let config = MyGreeter::read_string_from_env("POSTGRES_CONFIG").unwrap();
+
+    let greeter = MyGreeter::new(
+        MyGreeter::make_db_client(config.as_str()).await.unwrap(),
+        MyGreeter::read_string_from_env("POSTGRES_TABLE")
+            .unwrap()
+            .to_string(),
+    );
+
     Server::builder()
-        .add_service(GreeterServer::new(MyGreeter::new().await))
+        .add_service(GreeterServer::new(greeter))
         .serve(address)
         .await?;
 
@@ -58,64 +67,101 @@ impl Greeter for MyGreeter {
         let grpc_message = &msg.clone();
         let reply = hello_world::HelloReply { message: msg };
 
-        &self
-            .write_to_postgres(grpc_message, grpc_client, Utc::now())
+        self.write_to_postgres(grpc_message, grpc_client, Utc::now())
             .await
             .unwrap();
+
         Ok(Response::new(reply))
     }
 }
-impl MyGreeter {
-    async fn new() -> MyGreeter {
-        let config_connection = match std::env::var("POSTGRES_CONFIG") {
-            Ok(addr) => addr,
-            Err(error) => panic!("Problem reading the config from env: {:?}", error),
-        };
-        info!("Read postgres config from env: {}", config_connection);
 
-        let (client, connection) = tokio_postgres::connect(config_connection.as_str(), NoTls)
-            .await
-            .unwrap();
-
-        tokio::spawn(async move {
-            if let Err(err) = connection.await {
-                panic!("Postgres connection error: {}", err);
-            }
-        });
-
-        let table_name = std::env::var("POSTGRES_TABLE").unwrap_or_default();
-
+trait New {
+    fn new(db_client: tokio_postgres::Client, db_table: String) -> Self;
+}
+impl New for MyGreeter {
+    fn new(db_client: tokio_postgres::Client, db_table: String) -> Self {
         MyGreeter {
-            db_client: client,
-            db_table: table_name,
+            db_client,
+            db_table,
         }
     }
+}
+
+#[async_trait]
+trait DbWork {
+    async fn make_db_client(config: &str) -> Result<tokio_postgres::Client, tokio_postgres::Error>;
+    fn read_string_from_env(env_key: &str) -> Result<String, std::env::VarError>;
+}
+#[async_trait]
+impl DbWork for MyGreeter {
+    async fn make_db_client(config: &str) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
+        let (client, connection) = match tokio_postgres::connect(config, NoTls).await {
+            Ok((cli, conn)) => (cli, conn),
+            Err(err) => {
+                error!("Can't connect to postgres db");
+                return Err(err);
+            }
+        };
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+        Ok(client)
+    }
+    fn read_string_from_env(env_key: &str) -> Result<String, std::env::VarError> {
+        match std::env::var(env_key) {
+            Ok(val) => {
+                info!("env_key: {}, found: {}", env_key, val);
+                Ok(val)
+            }
+            Err(err) => {
+                error!("Problem with read table_name from env");
+                Err(err)
+            }
+        }
+    }
+}
+
+impl MyGreeter {
+    // TODO: use DI and read about it (additionally sometimes it's smart to use traits not implementations hi SOLID)
+
     async fn write_to_postgres(
         &self,
         grpc_message: &str,
         grpc_client: &str,
         datetime: DateTime<Utc>,
-    ) -> Result<(), Error> {
-        let datetime = &datetime.to_rfc3339().replace("T", " ")[..26];
-        //let datetime = &datetime[..26];
+        // TODO: return the record with resulting id
+    ) -> Result<(u64), tokio_postgres::Error> {
+        let count_chars_to_reduce_datetime_str = 26;
+        let datetime =
+            &datetime.to_rfc3339().replace("T", " ")[..count_chars_to_reduce_datetime_str];
 
-        let db_statement = &self.db_client
-            .prepare(
-                format!(
-                    "INSERT INTO {} (message, client_address, received_at_server) VALUES ($1, $2, $3)",
-                    &self.db_table
-                ).as_str(),
-            ).await.unwrap();
-
-        match &self
+        // TODO: read about ORMs and diesel in particular
+        // Answer the question: what pain do they solve and why are needed
+        let db_query = format!(
+            "INSERT INTO {} (message, client_address, received_at_server) VALUES ($1, $2, $3)",
+            self.db_table
+        )
+        .as_str();
+        let result = self
             .db_client
-            .execute(db_statement, &[&grpc_message, &grpc_client, &datetime])
+            .execute(
+                &self.db_client.prepare(db_query).await.unwrap(),
+                &[&grpc_message, &grpc_client, &datetime],
+            )
             .await
-        {
-            Ok(insert_row) => info!("Results of insert operation: {}", insert_row),
-            Err(error) => panic!("Problem with insert command: {:?}", error),
-        };
+            .unwrap();
 
-        Ok(())
+        // let id_row = match &self
+        //     .db_client
+        //     .execute("INSERT INTO grpc_messages (message, client_address, received_at_server) VALUES ($1, $2, $3)", &[&grpc_message, &grpc_client, &datetime])
+        //     .await
+        // {
+        //     Ok(insert_row) => insert_row,
+        //     Err(e) => panic!("{:?}", e),
+        // };
+
+        Ok(result)
     }
 }
