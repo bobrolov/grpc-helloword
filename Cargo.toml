@@ -28,6 +28,7 @@ tokio-postgres = "0.7.2"
 postgres = "0.19.1"
 chrono = "0.4.19"
 async-trait = "0.1.50"
+diesel="1.4.6"
 
 [build-dependencies]
 tonic-build = "0.4.2"

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
 use log::{error, info, warn, LevelFilter};
@@ -39,12 +39,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = MyGreeter::read_string_from_env("POSTGRES_CONFIG").unwrap();
 
-    let greeter = MyGreeter::new(
-        MyGreeter::make_db_client(config.as_str()).await.unwrap(),
-        MyGreeter::read_string_from_env("POSTGRES_TABLE")
+    let greeter = MyGreeter {
+        db_client: MyGreeter::make_db_client(config.as_str()).await.unwrap(),
+        db_table: MyGreeter::read_string_from_env("POSTGRES_TABLE")
             .unwrap()
             .to_string(),
-    );
+    };
 
     Server::builder()
         .add_service(GreeterServer::new(greeter))
@@ -75,22 +75,9 @@ impl Greeter for MyGreeter {
     }
 }
 
-trait New {
-    fn new(db_client: tokio_postgres::Client, db_table: String) -> Self;
-}
-impl New for MyGreeter {
-    fn new(db_client: tokio_postgres::Client, db_table: String) -> Self {
-        MyGreeter {
-            db_client,
-            db_table,
-        }
-    }
-}
-
 #[async_trait]
 trait DbWork {
     async fn make_db_client(config: &str) -> Result<tokio_postgres::Client, tokio_postgres::Error>;
-    fn read_string_from_env(env_key: &str) -> Result<String, std::env::VarError>;
 }
 #[async_trait]
 impl DbWork for MyGreeter {
@@ -109,6 +96,12 @@ impl DbWork for MyGreeter {
         });
         Ok(client)
     }
+}
+
+trait EnvWork {
+    fn read_string_from_env(env_key: &str) -> Result<String, std::env::VarError>;
+}
+impl EnvWork for MyGreeter {
     fn read_string_from_env(env_key: &str) -> Result<String, std::env::VarError> {
         match std::env::var(env_key) {
             Ok(val) => {
@@ -126,6 +119,13 @@ impl DbWork for MyGreeter {
 impl MyGreeter {
     // TODO: use DI and read about it (additionally sometimes it's smart to use traits not implementations hi SOLID)
 
+    fn new(&self, db_client: tokio_postgres::Client, db_table: String) -> MyGreeter {
+        MyGreeter {
+            db_client,
+            db_table,
+        }
+    }
+
     async fn write_to_postgres(
         &self,
         grpc_message: &str,
@@ -139,29 +139,77 @@ impl MyGreeter {
 
         // TODO: read about ORMs and diesel in particular
         // Answer the question: what pain do they solve and why are needed
-        let db_query = format!(
-            "INSERT INTO {} (message, client_address, received_at_server) VALUES ($1, $2, $3)",
-            self.db_table
-        )
-        .as_str();
-        let result = self
+
+        let db_query = "INSERT INTO grpc_messages (message, client_address, received_at_server) VALUES ($1, $2, $3)";
+        // let db_query = format!(
+        //     "INSERT INTO {} (message, client_address, received_at_server) VALUES ($1, $2, $3)",
+        //     self.db_table
+        // )
+        // .as_str();
+
+        let result = match self
             .db_client
             .execute(
                 &self.db_client.prepare(db_query).await.unwrap(),
                 &[&grpc_message, &grpc_client, &datetime],
             )
             .await
-            .unwrap();
-
-        // let id_row = match &self
-        //     .db_client
-        //     .execute("INSERT INTO grpc_messages (message, client_address, received_at_server) VALUES ($1, $2, $3)", &[&grpc_message, &grpc_client, &datetime])
-        //     .await
-        // {
-        //     Ok(insert_row) => insert_row,
-        //     Err(e) => panic!("{:?}", e),
-        // };
+        {
+            Ok(res) => res,
+            Err(e) => return Err(e),
+        };
 
         Ok(result)
+    }
+}
+
+fn last_day_in_next_month(date_now: chrono::Date<Utc>) -> i32 {
+    let year = date_now.year();
+    let next_month = {
+        if date_now.month() == 12 { 1 } else { date_now.month() + 1 }
+    };
+
+    let is_leap_year = year % 4 == 0 && year % 100 != 0;
+
+    match next_month {
+        1 | 3 | 5 | 7 | 8 | 10 | 13 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap_year { 29 } else { 28 }
+        },
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn test_last_day_in_next_month_normal_1() {
+        let date = Utc.ymd(2021, 5, 2);
+        assert_eq!(last_day_in_next_month(date), 30);
+    }
+    #[test]
+    fn test_last_day_in_next_month_normal_2() {
+        let date = Utc.ymd(2021, 1, 2);
+        assert_eq!(last_day_in_next_month(date), 28);
+    }
+    #[test]
+    fn test_last_day_in_next_month_next_year() {
+        let date = Utc.ymd(2020, 12, 2);
+        assert_eq!(last_day_in_next_month(date), 31);
+    }
+    #[test]
+    fn test_last_day_in_next_month_leap_year() {
+        let date = Utc.ymd(2020, 1, 2);
+        assert_eq!(last_day_in_next_month(date), 29);
+    }
+    #[test]
+    fn test_last_day_in_next_month_minus_year() {
+        let date = Utc.ymd(-9, 5, 2);
+        assert_eq!(last_day_in_next_month(date), 30);
     }
 }
