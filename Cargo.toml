@@ -18,6 +18,14 @@ path = "src/client.rs"
 name = "postgres-test"
 path = "src/postgres-test.rs"
 
+[[bin]]
+name = "diesel-test"
+path = "src/diesel-test.rs"
+
+[[bin]]
+name = "rbatis-test"
+path = "src/rbatis-test.rs"
+
 [dependencies]
 log = "0.4.14"
 simple_logger = "1.11.0"
@@ -27,8 +35,12 @@ tokio = {version = "1.5.0", features = ["macros", "rt-multi-thread"]}
 tokio-postgres = "0.7.2"
 postgres = "0.19.1"
 chrono = "0.4.19"
+chronoutil = "0.2.2"
 async-trait = "0.1.50"
-diesel="1.4.6"
+diesel = {version = "1.4.6", features = ["postgres"]}
+dotenv = "0.15.0"
+rbatis = "1.8.84"
+serde = {version = "1", features = ["derive"]}
 
 [build-dependencies]
 tonic-build = "0.4.2"
